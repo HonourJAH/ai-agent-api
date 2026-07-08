@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio fakeredis
+
+      - name: Run tests
+        run: pytest -v
+
+  docker-smoke-test:
+    name: Docker Compose boot check
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create dummy .env for Compose
+        run: echo "TAVILY_API_KEY=ci-dummy-key" > .env
+
+      - name: Build and start services
+        run: docker compose up -d --build
+
+      - name: Wait for API to respond
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health; then
+              echo ""
+              echo "API is responding"
+              exit 0
+            fi
+            echo "Waiting for API... (attempt $i/30)"
+            sleep 3
+          done
+          echo "API did not respond within the timeout window"
+          exit 1
+
+      - name: Confirm Redis connectivity is genuinely healthy
+        run: |
+          curl -sf http://localhost:8000/health | tee /dev/stderr | grep -q '"redis_reachable":true'
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
