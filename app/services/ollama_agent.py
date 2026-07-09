@@ -7,6 +7,7 @@ import httpx
 from app.services.tools.calculator import calculate, CalculatorError
 from app.services.tools.web_search import search, WebSearchConfigError
 from app.services.tools.code_executor import execute_code, CodeExecutionError
+from app.services.tools.current_datetime import get_current_datetime
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_AGENT_MODEL = os.getenv("OLLAMA_AGENT_MODEL", "qwen3:4b")
@@ -18,11 +19,15 @@ MAX_TOOL_ITERATIONS = 5
 
 SYSTEM_PROMPT = (
     "You are a helpful assistant with access to tools: a calculator, a web "
-    "search tool, and a Python code executor. Use a tool whenever it would "
-    "give a more accurate or up-to-date answer than reasoning alone — for "
-    "example, use the calculator for arithmetic, web_search for current "
-    "events or facts you're unsure of, and code_executor for anything "
-    "requiring actual computation or data manipulation. If you don't need "
+    "search tool, a Python code executor, and a tool to get the current "
+    "real date/time. Use a tool whenever it would give a more accurate or "
+    "up-to-date answer than reasoning alone — for example, use the "
+    "calculator for arithmetic, web_search for current events or facts "
+    "you're unsure of, code_executor for anything requiring actual "
+    "computation or data manipulation, and get_current_datetime for ANY "
+    "question about today's date, the current time, or day of the week — "
+    "never guess this or search the web for it, since your training data "
+    "has a cutoff and can't know the real current date. If you don't need "
     "a tool, just answer directly."
 )
 
@@ -80,7 +85,7 @@ TOOL_SCHEMAS = [
                 "Useful for calculations, data manipulation, or anything easier "
                 "to solve by writing code than reasoning about it directly. "
                 "Only a small set of stdlib modules are available: math, json, "
-                "random, re, datetime, statistics, itertools, collections, "
+                "random, re, datetime, time, statistics, itertools, collections, "
                 "string, decimal, fractions. No file, network, or OS access."
             ),
             "parameters": {
@@ -93,6 +98,21 @@ TOOL_SCHEMAS = [
                     }
                 },
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_datetime",
+            "description": (
+                "Get the real current date, time, and day of the week. "
+                "Always use this for any question about today's date, the "
+                "current time, or the current day of the week — never guess "
+                "based on training data, and never use web_search or "
+                "code_executor for this, since neither can know the real "
+                "current date reliably."
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
     },
 ]
@@ -128,6 +148,9 @@ async def _call_tool(name: str, arguments: dict) -> str:
         if name == "code_executor":
             result = await execute_code(arguments["code"])
             return json.dumps(result)
+
+        if name == "get_current_datetime":
+            return json.dumps(get_current_datetime())
 
         return json.dumps({"error": f"Unknown tool: {name}"})
 

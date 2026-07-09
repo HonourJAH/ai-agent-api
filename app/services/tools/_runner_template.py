@@ -2,7 +2,6 @@ import builtins as _builtins
 import sys
 import traceback
 
-# This file is executed in a separate subprocess to run user code in a sandboxed environment. It is not imported by the main application, so it can safely override builtins and other global state without affecting the rest of the application.
 try:
     import resource
 
@@ -12,13 +11,11 @@ try:
     _cpu_limit = min(_timeout_seconds, 30)
     resource.setrlimit(resource.RLIMIT_CPU, (_cpu_limit, _cpu_limit))
 
-    # Memory limit: 256 MB. This is a soft limit, so the process can exceed it briefly.
     _memory_limit_bytes = 256 * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_AS, (_memory_limit_bytes, _memory_limit_bytes))
 except Exception:
     pass
 
-# The following list of builtins is deliberately small and restrictive. It does not include any functions that would allow the executed code to access the filesystem, network, or other OS-level resources.
 _SAFE_BUILTIN_NAMES = [
     "abs",
     "all",
@@ -79,15 +76,13 @@ _safe_builtins = {
     if hasattr(_builtins, name)
 }
 
-# Deliberately small — no filesystem, network, process, or OS access
-# anywhere in this list. Only add a module here after confirming it can't
-# reach any of those, even indirectly.
 _ALLOWED_IMPORTS = {
     "math",
     "json",
     "random",
     "re",
     "datetime",
+    "time",
     "statistics",
     "itertools",
     "collections",

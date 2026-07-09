@@ -12,13 +12,28 @@ async def _collect(generator):
 
 
 class TestSingleRoundNoTools:
-    async def test_direct_answer_streams_content_and_done(self, make_fake_ollama_client):
+    async def test_direct_answer_streams_content_and_done(
+        self, make_fake_ollama_client
+    ):
         client = make_fake_ollama_client(
             rounds=[
                 [
-                    {"message": {"role": "assistant", "content": "", "thinking": "Easy one."}, "done": False},
-                    {"message": {"role": "assistant", "content": "Hello"}, "done": False},
-                    {"message": {"role": "assistant", "content": " there!"}, "done": False},
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "thinking": "Easy one.",
+                        },
+                        "done": False,
+                    },
+                    {
+                        "message": {"role": "assistant", "content": "Hello"},
+                        "done": False,
+                    },
+                    {
+                        "message": {"role": "assistant", "content": " there!"},
+                        "done": False,
+                    },
                     {"message": {"role": "assistant", "content": ""}, "done": True},
                 ]
             ]
@@ -36,23 +51,95 @@ class TestSingleRoundNoTools:
 
 
 class TestToolCallingLoop:
-    async def test_single_tool_call_then_final_answer(self, make_fake_ollama_client):
+    async def test_get_current_datetime_returns_real_clock_read(
+        self, make_fake_ollama_client
+    ):
+        """No mocking of the clock itself here — this confirms the tool
+        actually returns today's real date, not a fixed/fake value,
+        since that's the entire point of this tool existing.
+        """
+        from datetime import datetime, timezone
+
         client = make_fake_ollama_client(
             rounds=[
                 [
-                    {"message": {"role": "assistant", "content": "", "tool_calls": [
-                        {"id": "call_1", "function": {"name": "calculator", "arguments": {"expression": "47*89"}}}
-                    ]}, "done": False},
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "function": {
+                                        "name": "get_current_datetime",
+                                        "arguments": {},
+                                    },
+                                }
+                            ],
+                        },
+                        "done": False,
+                    },
                     {"message": {"role": "assistant", "content": ""}, "done": True},
                 ],
                 [
-                    {"message": {"role": "assistant", "content": "It is 4183."}, "done": False},
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Here's today's date.",
+                        },
+                        "done": False,
+                    },
                     {"message": {"role": "assistant", "content": ""}, "done": True},
                 ],
             ]
         )
         events = await _collect(
-            run_agent_turn([{"role": "user", "content": "what is 47*89"}], client=client)
+            run_agent_turn(
+                [{"role": "user", "content": "what's today's date"}], client=client
+            )
+        )
+
+        tool_result = next(e for e in events if e["event"] == "tool_result")
+        import json
+
+        result = json.loads(tool_result["result"])
+        assert result["date"] == datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    async def test_single_tool_call_then_final_answer(self, make_fake_ollama_client):
+        client = make_fake_ollama_client(
+            rounds=[
+                [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "function": {
+                                        "name": "calculator",
+                                        "arguments": {"expression": "47*89"},
+                                    },
+                                }
+                            ],
+                        },
+                        "done": False,
+                    },
+                    {"message": {"role": "assistant", "content": ""}, "done": True},
+                ],
+                [
+                    {
+                        "message": {"role": "assistant", "content": "It is 4183."},
+                        "done": False,
+                    },
+                    {"message": {"role": "assistant", "content": ""}, "done": True},
+                ],
+            ]
+        )
+        events = await _collect(
+            run_agent_turn(
+                [{"role": "user", "content": "what is 47*89"}], client=client
+            )
         )
 
         tool_call_events = [e for e in events if e["event"] == "tool_call"]
@@ -70,61 +157,129 @@ class TestToolCallingLoop:
         client = make_fake_ollama_client(
             rounds=[
                 [
-                    {"message": {"role": "assistant", "content": "", "tool_calls": [
-                        {"id": "call_1", "function": {"name": "calculator", "arguments": {"expression": "2+2"}}},
-                        {"id": "call_2", "function": {"name": "calculator", "arguments": {"expression": "3+3"}}},
-                    ]}, "done": False},
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "function": {
+                                        "name": "calculator",
+                                        "arguments": {"expression": "2+2"},
+                                    },
+                                },
+                                {
+                                    "id": "call_2",
+                                    "function": {
+                                        "name": "calculator",
+                                        "arguments": {"expression": "3+3"},
+                                    },
+                                },
+                            ],
+                        },
+                        "done": False,
+                    },
                     {"message": {"role": "assistant", "content": ""}, "done": True},
                 ],
                 [
-                    {"message": {"role": "assistant", "content": "4 and 6."}, "done": False},
+                    {
+                        "message": {"role": "assistant", "content": "4 and 6."},
+                        "done": False,
+                    },
                     {"message": {"role": "assistant", "content": ""}, "done": True},
                 ],
             ]
         )
         events = await _collect(
-            run_agent_turn([{"role": "user", "content": "compute two things"}], client=client)
+            run_agent_turn(
+                [{"role": "user", "content": "compute two things"}], client=client
+            )
         )
 
         tool_calls = [e for e in events if e["event"] == "tool_call"]
         assert len(tool_calls) == 2
 
-    async def test_unknown_tool_name_reported_not_crashed(self, make_fake_ollama_client):
+    async def test_unknown_tool_name_reported_not_crashed(
+        self, make_fake_ollama_client
+    ):
         client = make_fake_ollama_client(
             rounds=[
                 [
-                    {"message": {"role": "assistant", "content": "", "tool_calls": [
-                        {"id": "call_1", "function": {"name": "nonexistent_tool", "arguments": {}}}
-                    ]}, "done": False},
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "function": {
+                                        "name": "nonexistent_tool",
+                                        "arguments": {},
+                                    },
+                                }
+                            ],
+                        },
+                        "done": False,
+                    },
                     {"message": {"role": "assistant", "content": ""}, "done": True},
                 ],
                 [
-                    {"message": {"role": "assistant", "content": "Sorry, I can't do that."}, "done": False},
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Sorry, I can't do that.",
+                        },
+                        "done": False,
+                    },
                     {"message": {"role": "assistant", "content": ""}, "done": True},
                 ],
             ]
         )
         events = await _collect(
-            run_agent_turn([{"role": "user", "content": "do the impossible"}], client=client)
+            run_agent_turn(
+                [{"role": "user", "content": "do the impossible"}], client=client
+            )
         )
 
         tool_result = next(e for e in events if e["event"] == "tool_result")
         assert "Unknown tool" in tool_result["result"]
 
-    async def test_failing_tool_call_reported_as_result_not_raised(self, make_fake_ollama_client):
+    async def test_failing_tool_call_reported_as_result_not_raised(
+        self, make_fake_ollama_client
+    ):
         """A bad calculator expression should surface as a tool result
         the model can react to, not crash the whole agent turn.
         """
         client = make_fake_ollama_client(
             rounds=[
                 [
-                    {"message": {"role": "assistant", "content": "", "tool_calls": [
-                        {"id": "call_1", "function": {"name": "calculator", "arguments": {"expression": "1/0"}}}
-                    ]}, "done": False},
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "function": {
+                                        "name": "calculator",
+                                        "arguments": {"expression": "1/0"},
+                                    },
+                                }
+                            ],
+                        },
+                        "done": False,
+                    },
                     {"message": {"role": "assistant", "content": ""}, "done": True},
                 ],
                 [
-                    {"message": {"role": "assistant", "content": "Division by zero isn't possible."}, "done": False},
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Division by zero isn't possible.",
+                        },
+                        "done": False,
+                    },
                     {"message": {"role": "assistant", "content": ""}, "done": True},
                 ],
             ]
@@ -139,13 +294,28 @@ class TestToolCallingLoop:
 
 
 class TestIterationCap:
-    async def test_exceeding_max_iterations_raises_agent_error(self, make_fake_ollama_client):
+    async def test_exceeding_max_iterations_raises_agent_error(
+        self, make_fake_ollama_client
+    ):
         # Every round calls a tool, never producing a final answer —
         # should hit MAX_TOOL_ITERATIONS and raise, not loop forever.
         tool_call_round = [
-            {"message": {"role": "assistant", "content": "", "tool_calls": [
-                {"id": "call_1", "function": {"name": "calculator", "arguments": {"expression": "1+1"}}}
-            ]}, "done": False},
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "function": {
+                                "name": "calculator",
+                                "arguments": {"expression": "1+1"},
+                            },
+                        }
+                    ],
+                },
+                "done": False,
+            },
             {"message": {"role": "assistant", "content": ""}, "done": True},
         ]
         client = make_fake_ollama_client(
@@ -154,7 +324,9 @@ class TestIterationCap:
 
         with pytest.raises(AgentError, match="maximum tool-call iterations"):
             await _collect(
-                run_agent_turn([{"role": "user", "content": "loop forever"}], client=client)
+                run_agent_turn(
+                    [{"role": "user", "content": "loop forever"}], client=client
+                )
             )
 
 
@@ -164,7 +336,10 @@ class TestErrorHandling:
 
         class FailingContextManager:
             async def __aenter__(self):
-                raise httpx.ConnectError("Connection refused", request=httpx.Request("POST", "http://fake"))
+                raise httpx.ConnectError(
+                    "Connection refused", request=httpx.Request("POST", "http://fake")
+                )
+
             async def __aexit__(self, *args):
                 return False
 
